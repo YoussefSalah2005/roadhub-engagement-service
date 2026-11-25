@@ -1,0 +1,65 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "OwnTablesOnly",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:Query",
+        "dynamodb:BatchGetItem",
+        "dynamodb:ConditionCheckItem"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-1:000000000000:table/roadhub-votes",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/roadhub-votes/index/*",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/roadhub-comments",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/roadhub-comments/index/*",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/roadhub-engagement-counts",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/roadhub-engagement-counts/index/*",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/roadhub-engagement-links",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/roadhub-engagement-links/index/*",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/roadhub-notifications",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/roadhub-notifications/index/*",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/roadhub-processed-messages",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/roadhub-processed-messages/index/*"
+      ]
+    },
+    {
+      "Sid": "ReadLoginAndServiceKeys",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": [
+        "arn:aws:secretsmanager:us-east-1:000000000000:secret:roadhub/jwt-public-*",
+        "arn:aws:secretsmanager:us-east-1:000000000000:secret:roadhub/internal-*",
+        "arn:aws:secretsmanager:us-east-1:000000000000:secret:roadhub/turnstile-*"
+      ]
+    },
+    {
+      "Sid": "PublishEngagementEvents",
+      "Effect": "Allow",
+      "Action": [
+        "events:PutEvents"
+      ],
+      "Resource": [
+        "arn:aws:events:us-east-1:000000000000:event-bus/roadhub-events"
+      ]
+    },
+    {
+      "Sid": "WriteOwnAuditLog",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": [
+        "arn:aws:logs:us-east-1:000000000000:log-group:/aws/ecs/roadhub-engagement:*"
+      ]
+    }
+  ]
+}
