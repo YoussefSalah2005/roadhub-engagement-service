@@ -7,9 +7,14 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "worker": "node workers/notificationWorker.js",
+    "selfcheck": "node server.js --selfcheck",
     "test": "node --test --test-concurrency=1 tests/*.test.js",
-    "setup:tables": "bash infra/scripts/create-tables.sh",
-    "setup:secrets": "bash infra/scripts/create-secrets.sh"
+    "setup:aws": "bash infra/init-aws.sh",
+    "setup:tables": "bash infra/services/01-dynamodb.sh",
+    "setup:secrets": "bash infra/services/02-secrets-manager.sh",
+    "zip:worker": "node scripts/zip-worker.js",
+    "check": "bash infra/check-engagement.sh"
   },
   "engines": {
     "node": ">=20"
