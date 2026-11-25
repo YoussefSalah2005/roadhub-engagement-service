@@ -21,7 +21,7 @@ async function addComment(req, res) {
 async function editComment(req, res) {
   v.onlyFields(req.body, ['body']);
   const body = v.text(req.body, 'body', { min: 1, max: 1000 });
-  res.status(200).json({ comment: await commentService.edit(req.user, v.uuid(req.params.id), body) });
+  res.status(200).json({ comment: await commentService.edit(req.user, v.uuid(req.params.id), body, req.id) });
 }
 async function deleteComment(req, res) {
   await commentService.remove(req.user, v.uuid(req.params.id), req.id);
