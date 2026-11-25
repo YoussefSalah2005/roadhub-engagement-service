@@ -11,6 +11,15 @@ const { loadKeys, userToken, serviceToken } = require('./helpers/keys');
 const { startFake } = require('./helpers/fake-service');
 const { startService } = require('./helpers/service');
 const { api } = require('./helpers/api');
+const { spawnSync } = require('child_process');
+const path = require('path');
+const {
+  CloudWatchLogsClient, CreateLogGroupCommand, CreateLogStreamCommand, GetLogEventsCommand, DeleteLogGroupCommand
+} = require('@aws-sdk/client-cloudwatch-logs');
+
+// The audit trail of this test run goes to its own log group (deleted at the end).
+const AUDIT_GROUP = `/aws/ecs/roadhub-engagement-test-${randomUUID().slice(0, 8)}`;
+const logs = new CloudWatchLogsClient({});
 
 const accounts = new Map();  // fake admin: account state by user id
 const features = new Map();  // fake roadmap: request id -> { canonicalId, title, status }
@@ -39,6 +48,8 @@ const mergeStep = (action, body, scope = 'engagement:merge') => call('POST', `/i
 test.before(async () => {
   await requireTables(['roadhub-votes', 'roadhub-comments', 'roadhub-engagement-counts', 'roadhub-engagement-links', 'roadhub-notifications']);
   keys = await loadKeys();
+  await logs.send(new CreateLogGroupCommand({ logGroupName: AUDIT_GROUP }));
+  await logs.send(new CreateLogStreamCommand({ logGroupName: AUDIT_GROUP, logStreamName: 'app-audit-stream' }));
   roadmap = await startFake('roadmap', keys.internalKey, [
     { method: 'GET', path: /^\/internal\/features\/_ping$/, reply: () => ({ body: { service: 'roadmap' } }) },
     {
@@ -77,7 +88,10 @@ test.before(async () => {
   ]);
   svc = await startService({
     port: 4520,
-    env: { ROADMAP_URL: roadmap.url, ADMIN_URL: admin.url, USER_STATUS_CACHE_MS: '0', TURNSTILE_ENABLED: 'false', RATE_LIMITS: 'off', EVENTS: 'off' }
+    env: {
+      ROADMAP_URL: roadmap.url, ADMIN_URL: admin.url, USER_STATUS_CACHE_MS: '0', TURNSTILE_ENABLED: 'false', RATE_LIMITS: 'off', EVENTS: 'off',
+      INSTANCE_ID: 'engagement-test-1', AUDIT_LOG_GROUP: AUDIT_GROUP, AUDIT_LOG_STREAM: 'app-audit-stream'
+    }
   });
   call = api(svc.url);
   for (const name of ['Alice', 'Bob', 'Carol', 'Dave', 'Erin']) u[name] = person(name);
@@ -86,6 +100,7 @@ test.before(async () => {
   f.B = feature('Dashboard dark mode');
 });
 test.after(async () => {
+  await logs.send(new DeleteLogGroupCommand({ logGroupName: AUDIT_GROUP })).catch(() => {});
   if (svc) await svc.stop();
   if (roadmap) await roadmap.stop();
   if (admin) await admin.stop();
@@ -228,4 +243,48 @@ test('internal routes need a valid service token', async () => {
   const forged = jwt.sign({ typ: 'service', scope: ['engagement:merge'] }, 'not-the-real-key-not-the-real-key!!', { algorithm: 'HS256', issuer: 'admin', audience: 'engagement', expiresIn: 60 });
   assert.equal((await call('GET', '/internal/engagement/_ping', { headers: { 'X-Service-Token': forged } })).status, 401);
   assert.equal((await call('GET', '/internal/engagement/_ping', { headers: { 'X-Service-Token': u.admin.token } })).status, 401, 'a user login is not a service token');
+});
+
+test('every answer says which copy of the service answered (Lab 8 instance badge)', async () => {
+  const r = await call('GET', '/health');
+  assert.equal(r.data.instanceId, 'engagement-test-1');
+  const res = await fetch(`${svc.url}/api/features/${f.A}/votes`);
+  assert.equal(res.headers.get('x-instance-id'), 'engagement-test-1');
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+});
+
+test('comments are cleaned before saving: <script> removed (Lab 8 test S5), only-HTML refused', async () => {
+  const r = await comment(u.Carol, f.A, '<script>alert(1)</script>Nice idea');
+  assert.equal(r.status, 201);
+  assert.equal(r.data.comment.body, 'Nice idea');
+  const onlyHtml = await comment(u.Carol, f.A, '<script>alert(1)</script>');
+  assert.equal(onlyHtml.status, 400);
+  const edit = await call('PATCH', `/api/comments/${r.data.comment.commentId}`, { token: u.Carol.token, body: { body: '<b>Very</b> nice <img src=x onerror=alert(1)>idea' } });
+  assert.equal(edit.data.comment.body, 'Very nice idea');
+});
+
+test('audit trail in CloudWatch Logs: AUDIT lines for writes, SECURITY_ALERT lines for blocked requests', async () => {
+  // Lines are sent in the background every second: read until the newest ones have arrived (max 15 s).
+  let lines = [];
+  for (let i = 0; i < 30; i += 1) {
+    const out = await logs.send(new GetLogEventsCommand({ logGroupName: AUDIT_GROUP, logStreamName: 'app-audit-stream', startFromHead: true }));
+    lines = (out.events || []).map((e) => e.message);
+    if (lines.some((l) => l.includes('INTERNAL_AUTH_INVALID')) && lines.filter((l) => l.startsWith('AUDIT COMMENT_EDITED ')).length >= 2) break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  for (const action of ['VOTE_ADDED', 'VOTE_REMOVED', 'COMMENT_ADDED', 'COMMENT_EDITED', 'COMMENT_REMOVED_BY_ADMIN', 'MERGE_LINKED', 'MERGE_UNDONE']) {
+    assert.ok(lines.some((l) => l.startsWith(`AUDIT ${action} `)), `AUDIT ${action} is in the log`);
+  }
+  const alerts = lines.filter((l) => l.startsWith('SECURITY_ALERT ')).map((l) => JSON.parse(l.slice('SECURITY_ALERT '.length)));
+  assert.ok(alerts.some((a) => a.type === 'AUTH_FAILED'), 'a vote without login was recorded');
+  assert.ok(alerts.some((a) => a.type === 'ACCESS_DENIED' && a.code === 'NOT_OWNER'), 'editing someone else\'s comment was recorded');
+  assert.ok(alerts.some((a) => a.type === 'INTERNAL_AUTH_INVALID'), 'a forged service token was recorded');
+  assert.ok(lines.every((l) => !l.includes('@')), 'no e-mail address in the audit trail');
+  assert.ok(lines.every((l) => !l.includes('Nice idea')), 'no comment text in the audit trail');
+});
+
+test('self-check passes without Floci (node server.js --selfcheck)', () => {
+  const out = spawnSync(process.execPath, ['server.js', '--selfcheck'], { cwd: path.join(__dirname, '..'), encoding: 'utf8' });
+  assert.equal(out.status, 0, out.stdout + out.stderr);
+  assert.ok(out.stdout.includes('[selfcheck] all assertions passed'));
 });

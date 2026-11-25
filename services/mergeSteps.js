@@ -4,6 +4,7 @@
 const { http } = require('../shared');
 const repos = require('../repositories');
 const countsService = require('./countsService');
+const { audit } = require('./auditLog');
 
 const { errors } = http;
 
@@ -23,17 +24,20 @@ async function complete({ mergeId, sourceId, targetId }, requestId) {
     throw errors.conflict('ALREADY_LINKED', 'This request is already merged by another merge.');
   }
   const counts = await countsService.recount(targetId, requestId);
+  audit('MERGE_LINKED', { requestId, mergeId, sourceId, targetId, voteCount: counts.voteCount });
   return { voteCount: counts.voteCount, commentCount: counts.commentCount };
 }
 
 async function abort({ mergeId, sourceId, targetId }, requestId) {
   if (await repos.groups.removeLink({ mergeId, sourceId })) await countsService.recount(targetId, requestId);
+  audit('MERGE_ABORTED', { requestId, mergeId, sourceId, targetId });
   return { aborted: true };
 }
 
 async function undo({ mergeId, sourceId, targetId }, requestId) {
   await repos.groups.removeLink({ mergeId, sourceId }); // already removed -> fine (idempotent)
   const [target, source] = await Promise.all([countsService.recount(targetId, requestId), countsService.recount(sourceId, requestId)]);
+  audit('MERGE_UNDONE', { requestId, mergeId, sourceId, targetId, targetVotes: target.voteCount, sourceVotes: source.voteCount });
   return { target: { voteCount: target.voteCount, commentCount: target.commentCount }, source: { voteCount: source.voteCount, commentCount: source.commentCount } };
 }
 

@@ -1,0 +1,18 @@
+{
+  "Records": [
+    {
+      "messageId": "saved-msg-0002",
+      "receiptHandle": "saved-test-event",
+      "body": "{\"version\": \"0\", \"id\": \"saved-event-0002\", \"detail-type\": \"VoteAdded\", \"source\": \"roadhub.engagement\", \"detail\": {\"eventId\": \"saved-event-0002\", \"featureId\": \"00000000-0000-4000-8000-000000000001\"}}",
+      "attributes": {
+        "ApproximateReceiveCount": "1",
+        "SentTimestamp": "1795500000000"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:000000000000:roadhub-notify-queue",
+      "awsRegion": "us-east-1"
+    }
+  ]
+}

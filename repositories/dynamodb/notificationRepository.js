@@ -27,12 +27,18 @@ async function claim({ eventId, recipientId, eventType, featureId }) {
   }
 }
 
+// Records how a send ended. Only values that exist are written (DynamoDB refuses empty ones);
+// a later success removes the error code of an earlier failed try.
 async function finish(notificationId, { status, providerMessageId, errorCode }) {
+  const values = { ':s': status, ':now': new Date().toISOString() };
+  let set = 'SET #s = :s, finishedAt = :now';
+  if (providerMessageId) { set += ', providerMessageId = :p'; values[':p'] = providerMessageId; }
+  if (errorCode) { set += ', errorCode = :e'; values[':e'] = errorCode; }
   await db.send(new UpdateCommand({
     TableName: config.tables.notifications, Key: { notificationId },
-    UpdateExpression: 'SET #s = :s, providerMessageId = :p, errorCode = :e, finishedAt = :now',
+    UpdateExpression: errorCode ? set : `${set} REMOVE errorCode`,
     ExpressionAttributeNames: { '#s': 'status' },
-    ExpressionAttributeValues: { ':s': status, ':p': providerMessageId, ':e': errorCode, ':now': new Date().toISOString() }
+    ExpressionAttributeValues: values
   }));
 }
 
@@ -45,11 +51,12 @@ async function listForUser(recipientId, limit = 50) {
 }
 
 // Marks a whole queue message as done (kept 7 days, then removed by DynamoDB TTL).
-async function markProcessed(messageId) {
+// processedBy says which consumer did the job ("lambda" or "worker-<pid>"): useful evidence.
+async function markProcessed(messageId, processedBy = 'unknown') {
   try {
     await db.send(new PutCommand({
       TableName: config.tables.processed,
-      Item: { messageId, processedAt: new Date().toISOString(), expiresAt: Math.floor(Date.now() / 1000) + 7 * 86400 },
+      Item: { messageId, processedBy, processedAt: new Date().toISOString(), expiresAt: Math.floor(Date.now() / 1000) + 7 * 86400 },
       ConditionExpression: 'attribute_not_exists(messageId)'
     }));
     return true;

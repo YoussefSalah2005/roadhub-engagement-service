@@ -1,5 +1,11 @@
 // Starts the Engagement Service (S2) on its own port (independent process).
+//   node server.js               -> the API (default port 3002)
+//   node server.js --selfcheck   -> tests the pure logic without Floci and exits (Lab 8)
 require('dotenv').config({ quiet: true });
+if (process.argv.includes('--selfcheck')) {
+  require('./scripts/selfcheck').run();
+  return;
+}
 process.env.SERVICE_NAME = process.env.SERVICE_NAME || 'engagement';
 const { logger } = require('./shared');
 const app = require('./app');

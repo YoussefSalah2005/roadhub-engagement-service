@@ -1,0 +1,18 @@
+{
+  "Records": [
+    {
+      "messageId": "saved-msg-0003",
+      "receiptHandle": "saved-test-event",
+      "body": "this is not JSON",
+      "attributes": {
+        "ApproximateReceiveCount": "1",
+        "SentTimestamp": "1795500000000"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:000000000000:roadhub-notify-queue",
+      "awsRegion": "us-east-1"
+    }
+  ]
+}

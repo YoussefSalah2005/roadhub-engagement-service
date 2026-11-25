@@ -4,6 +4,7 @@ const { http, events } = require('../shared');
 const repos = require('../repositories');
 const roadmap = require('../clients/roadmap');
 const countsService = require('./countsService');
+const { audit } = require('./auditLog');
 
 const { errors } = http;
 
@@ -17,6 +18,7 @@ async function add(user, featureId, requestId) {
   if (!(await repos.votes.addVote(canonicalId, user.id))) {
     throw errors.conflict('ALREADY_VOTED', 'You have already voted for this request.'); // two clicks at once: one wins
   }
+  audit('VOTE_ADDED', { requestId, featureId: canonicalId, requestedId: featureId, userId: user.id });
   await events.publish('engagement', 'VoteAdded', { featureId: canonicalId, userId: user.id }, { requestId });
   const counts = await countsService.announce(canonicalId, requestId);
   return { featureId: canonicalId, requestedId: featureId, voteCount: counts.voteCount, hasVoted: true };
@@ -29,6 +31,7 @@ async function remove(user, featureId, requestId) {
   const rows = await repos.votes.findUserVotes(group, user.id);    // the key holds MY id: nobody can remove another's vote
   if (!rows.length) throw errors.notFound('VOTE_NOT_FOUND', 'You have not voted for this request.');
   await repos.votes.removeVotes(canonicalId, rows);
+  audit('VOTE_REMOVED', { requestId, featureId: canonicalId, userId: user.id, rows: rows.length });
   await events.publish('engagement', 'VoteRemoved', { featureId: canonicalId, userId: user.id }, { requestId });
   const counts = await countsService.announce(canonicalId, requestId);
   return { featureId: canonicalId, voteCount: counts.voteCount, hasVoted: false };
